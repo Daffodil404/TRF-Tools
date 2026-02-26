@@ -10,16 +10,15 @@ I get this definition from `line 1066-1078`.
 | **n_iter** | —                 | Only set for some tags: `ncrf-50it` → 50; `ncrf-no_champ` → 1. |
 | **n_iterf**| —                 | Only for `ncrf-no_champ`: 1000. |
 | **n_iterc**| —                 | Only for `ncrf-no_champ`: 0. |
-| **normalize** | `True` (fixed)  | Passed to `fit_ncrf`, not in `ncrf_args`. |
-| **in_place**  | `True` (fixed)  | Passed to `fit_ncrf`, not in `ncrf_args`. |
+| **normalize** | `True` (fixed)  | Fixed argument to `fit_ncrf` (always `True`); not user-configurable via `ncrf_args`. |
+
+Currently there is no explicit cross-validation parameter (like `partitions` for boosting) for NCRF; such a parameter is planned for a future extension.
 
 ## Boosting estimator
-I get this from  `partial(boosting, y, xs, tstart, tstop, 'inplace', delta, mindelta, error, basis, partitions=partitions, test=cv, selective_stopping=selective_stopping, partition_results=partition_results)`
+I get this from  `partial(boosting, y, xs, tstart, tstop, 'inplace', delta, mindelta, error, basis, partitions=partitions, test=cv, selective_stopping=selective_stopping, partition_results=partition_results)` inside `_trf_job`. `tstart` and `tstop` are parameters of `load_trf`/`load_trfs`, not of the estimator, so they are not listed here.
 
 | Parameter              | Default   | Description |
 |------------------------|-----------|-------------|
-| **tstart**             | 0         | TRF time window start (s). |
-| **tstop**              | 0.5       | TRF time window stop (s). |
 | **delta**              | 0.005     | Boosting delta. |
 | **mindelta**           | None      | Boosting mindelta. |
 | **error**              | `'l1'`    | Error function: `'l1'` or `'l2'`. |
