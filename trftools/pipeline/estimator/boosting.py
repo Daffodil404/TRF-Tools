@@ -24,7 +24,7 @@ class BoostingEstimator(Estimator):
         error: str = "l1",
         basis: float = 0.050,
         partitions: Optional[int] = None,
-        cv: bool = True,
+        test: bool = True,
         selective_stopping: int = 0,
         partition_results: bool = False,
         name: str = "",
@@ -34,20 +34,22 @@ class BoostingEstimator(Estimator):
         self.error = error
         self.basis = basis
         self.partitions = partitions
-        self.cv = cv
+        self.test = test
         self.selective_stopping = selective_stopping
         self.partition_results = partition_results
         self.name = name or "boosting"
 
-    # def to_partial_kwargs(self) -> Dict[str, Any]:
-    #     """Keyword arguments for partial(boosting, y, xs, tstart, tstop, 'inplace', delta, mindelta, error, basis, **kwargs)."""
-    #     return {
-    #         "partitions": self.partitions,
-    #         "test": self.cv,
-    #         "selective_stopping": self.selective_stopping,
-    #         "partition_results": self.partition_results,
-    #     }
 
-    # def positional_args_for_partial(self) -> tuple:
-    #     """Positional args after (y, xs, tstart, tstop): ('inplace', delta, mindelta, error, basis)."""
-    #     return ("inplace", self.delta, self.mindelta, self.error, self.basis)
+    # partial(boosting, y, xs, tstart, tstop, 'inplace', **self.parameters_for_partial())
+    def parameters_for_partial(self) -> Dict[str, Any]:
+        """Override base: return boosting kwargs for partial(boosting, ..., **kwargs)."""
+        return {
+            "delta": self.delta,
+            "mindelta": self.mindelta,
+            "error": self.error,
+            "basis": self.basis,
+            "partitions": self.partitions,
+            "test": self.test,
+            "selective_stopping": self.selective_stopping,
+            "partition_results": self.partition_results,
+        }

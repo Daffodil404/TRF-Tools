@@ -38,6 +38,7 @@ from eelbrain._utils import ask
 from filelock import FileLock
 import numpy as np
 from numpy import newaxis
+from trftools.pipeline.estimator import Estimator
 
 from .._ndvar import pad
 from .._numpy_funcs import arctanh
@@ -1041,6 +1042,7 @@ class TRFExperiment(Pipeline):
             data: DataArg = DATA_DEFAULT,
             backward: bool = False,
             partition_results: bool = False,
+            estimator: Estimator = None,
             **state,
     ) -> Optional[Callable]:
         "Return function to create TRF result"
