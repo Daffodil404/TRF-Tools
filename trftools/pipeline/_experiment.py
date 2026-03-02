@@ -855,6 +855,7 @@ class TRFExperiment(Pipeline):
             path_only: bool = False,
             partition_results: bool = False,
             morph: bool = False,
+            estimator: Estimator = None,
             **state,
     ) -> Union[BoostingResult, str]:
         """TRF estimated with boosting
