@@ -855,7 +855,7 @@ class TRFExperiment(Pipeline):
             path_only: bool = False,
             partition_results: bool = False,
             morph: bool = False,
-            estimator: Estimator = None,
+            estimator: Union[str, Estimator, None] = None,
             **state,
     ) -> Union[BoostingResult, str]:
         """TRF estimated with boosting
@@ -912,6 +912,11 @@ class TRFExperiment(Pipeline):
             Keep results for each test-partition (TRFs and model evaluation).
         morph
             Morph source space data to the FSAverage brain.
+        estimator : str | Estimator | None
+            Named estimator key from ``experiment.estimators`` (e.g. ``'boosting'``),
+            or an :class:`~trftools.pipeline.estimator.Estimator` instance. If given,
+            its parameters override the explicit delta/basis/partitions/cv/... arguments
+            and determine the cache path and fitting call.
         ...
             State parameters.
 
@@ -921,6 +926,25 @@ class TRFExperiment(Pipeline):
         """
         data = TestDims.coerce(data, morph=morph)
         x = self._coerce_model(x)
+        # Resolve estimator (str -> instance) and apply effective params
+        if isinstance(estimator, str):
+            estimators = getattr(self, 'estimators', None)
+            if not isinstance(estimators, dict):
+                raise ValueError("estimator='...' requires experiment.estimators dict")
+            est = estimators.get(estimator)
+            if est is None:
+                raise ValueError(f"estimator={estimator!r} not in {list(estimators.keys())}")
+            estimator = est
+        if estimator is not None:
+            effective = dict(estimator.parameters_for_partial())
+            delta = effective.get('delta', delta)
+            mindelta = effective.get('mindelta', mindelta)
+            error = effective.get('error', error)
+            basis = effective.get('basis', basis)
+            partitions = effective.get('partitions', partitions)
+            cv = effective.get('test', cv)
+            selective_stopping = effective.get('selective_stopping', selective_stopping)
+            partition_results = effective.get('partition_results', partition_results)
         # check epoch
         epoch = self._epochs[self.get('epoch', **state)]
         if isinstance(epoch, EpochCollection):
@@ -987,7 +1011,7 @@ class TRFExperiment(Pipeline):
             raise IOError(f"TRF {relpath(dst, self.get('root'))} does not exist (model {model_desc!r}); set make=True to compute it.")
 
         self._log.info("Computing TRF:  %s %s %s %s", self.get('subject'), data.string, '->' if backward else '<-', x.name)
-        func = self._trf_job(x, tstart, tstop, basis, error, partitions, samplingrate, mask, delta, mindelta, filter_x, selective_stopping, cv, data, backward, partition_results)
+        func = self._trf_job(x, tstart, tstop, basis, error, partitions, samplingrate, mask, delta, mindelta, filter_x, selective_stopping, cv, data, backward, partition_results, estimator=estimator)
         if func is None:
             res = load.unpickle(dst)  # _trf_job() created a link from an equivalent result (NCRF)
         else:
@@ -1147,7 +1171,8 @@ class TRFExperiment(Pipeline):
         # reshape data
         if partitions is None:
             if not 3 <= ds.n_cases <= 10:
-                raise TypeError(f"{partitions=}: can't infer partitions parameter for {ds.n_cases} cases")
+                # Default when estimator doesn't set partitions (e.g. NCRF with sensor space) or many cases
+                partitions = min(5, max(2, ds.n_cases // 2))
         elif partitions < 0:
             partitions = None if partitions == -1 else -partitions
             y = concatenate(y)
@@ -1179,6 +1204,8 @@ class TRFExperiment(Pipeline):
                 else:
                     y = y.sub(sensor=cov.ch_names)
             from ncrf import fit_ncrf
+            if estimator is not None:
+                ncrf_args = {**ncrf_args, **estimator.parameters_for_partial()}
             return partial(fit_ncrf, y, xs, fwd, cov, tstart, tstop, normalize=True, in_place=True, **ncrf_args)
         return partial(boosting, y, xs, tstart, tstop, 'inplace', delta, mindelta, error, basis, partitions=partitions, test=cv, selective_stopping=selective_stopping, partition_results=partition_results)
 
