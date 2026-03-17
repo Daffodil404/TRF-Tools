@@ -186,6 +186,37 @@ class TRFExperiment(Pipeline):
 
     _parc_supersets = {}
 
+    def _resolve_estimator(self, estimator: Union[str, Estimator, None]) -> Union[Estimator, None]:
+        """Resolve estimator name to an Estimator instance (or None)."""
+        if estimator is None:
+            return None
+        if isinstance(estimator, str):
+            estimators = getattr(self, 'estimators', None)
+            if not isinstance(estimators, dict):
+                raise ValueError("estimator='...' requires experiment.estimators dict")
+            est = estimators.get(estimator)
+            if est is None:
+                raise ValueError(f"estimator={estimator!r} not in {list(estimators.keys())}")
+            estimator = est
+        if not isinstance(estimator, Estimator):
+            raise ValueError(f"estimator must be str or Estimator, got {type(estimator)!r}")
+        return estimator
+
+    def _apply_estimator_params(self, estimator: Union[Estimator, None], **kwargs) -> Dict[str, Any]:
+        """Apply estimator params on top of explicit args and return updated kwargs."""
+        if estimator is None:
+            return kwargs
+        effective = dict(estimator.parameters_for_partial())
+        kwargs['delta'] = effective.get('delta', kwargs.get('delta'))
+        kwargs['mindelta'] = effective.get('mindelta', kwargs.get('mindelta'))
+        kwargs['error'] = effective.get('error', kwargs.get('error'))
+        kwargs['basis'] = effective.get('basis', kwargs.get('basis'))
+        kwargs['partitions'] = effective.get('partitions', kwargs.get('partitions'))
+        kwargs['cv'] = effective.get('test', kwargs.get('cv'))
+        kwargs['selective_stopping'] = effective.get('selective_stopping', kwargs.get('selective_stopping'))
+        kwargs['partition_results'] = effective.get('partition_results', kwargs.get('partition_results'))
+        return kwargs
+
     def _collect_invalid_files(self, invalid_cache, new_state, cache_state):
         rm = Pipeline._collect_invalid_files(self, invalid_cache, new_state, cache_state)
 
@@ -927,24 +958,26 @@ class TRFExperiment(Pipeline):
         data = TestDims.coerce(data, morph=morph)
         x = self._coerce_model(x)
         # Resolve estimator (str -> instance) and apply effective params
-        if isinstance(estimator, str):
-            estimators = getattr(self, 'estimators', None)
-            if not isinstance(estimators, dict):
-                raise ValueError("estimator='...' requires experiment.estimators dict")
-            est = estimators.get(estimator)
-            if est is None:
-                raise ValueError(f"estimator={estimator!r} not in {list(estimators.keys())}")
-            estimator = est
-        if estimator is not None:
-            effective = dict(estimator.parameters_for_partial())
-            delta = effective.get('delta', delta)
-            mindelta = effective.get('mindelta', mindelta)
-            error = effective.get('error', error)
-            basis = effective.get('basis', basis)
-            partitions = effective.get('partitions', partitions)
-            cv = effective.get('test', cv)
-            selective_stopping = effective.get('selective_stopping', selective_stopping)
-            partition_results = effective.get('partition_results', partition_results)
+        estimator = self._resolve_estimator(estimator)
+        effective = self._apply_estimator_params(
+            estimator,
+            delta=delta,
+            mindelta=mindelta,
+            error=error,
+            basis=basis,
+            partitions=partitions,
+            cv=cv,
+            selective_stopping=selective_stopping,
+            partition_results=partition_results,
+        )
+        delta = effective['delta']
+        mindelta = effective['mindelta']
+        error = effective['error']
+        basis = effective['basis']
+        partitions = effective['partitions']
+        cv = effective['cv']
+        selective_stopping = effective['selective_stopping']
+        partition_results = effective['partition_results']
         # check epoch
         epoch = self._epochs[self.get('epoch', **state)]
         if isinstance(epoch, EpochCollection):
@@ -1207,7 +1240,7 @@ class TRFExperiment(Pipeline):
             if estimator is not None:
                 ncrf_args = {**ncrf_args, **estimator.parameters_for_partial()}
             return partial(fit_ncrf, y, xs, fwd, cov, tstart, tstop, normalize=True, in_place=True, **ncrf_args)
-        return partial(boosting, y, xs, tstart, tstop, 'inplace', delta, mindelta, error, basis, partitions=partitions, test=cv, selective_stopping=selective_stopping, partition_results=partition_results)
+        return partial(boosting, y, xs, tstart, tstop, 'inplace', **boosting_args)
 
     def load_trfs(
             self,

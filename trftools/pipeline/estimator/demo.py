@@ -7,6 +7,33 @@ from trftools.pipeline import TRFExperiment, FilePredictor
 from trftools.pipeline.estimator import BoostingEstimator, NCRFEstimator
 
 
+def _log(msg: str):
+    print(f"[demo] {msg}")
+
+
+def _make_synthetic_ndvar():
+    """NDVar from -5000s to +5000s so any epoch tmin/tmax falls inside (avoids pad zeros -> flat)."""
+    tstep = 0.01
+    tmin = -5000.0
+    n = 1000000  # 10000 s total
+    rs = np.random.RandomState(42)
+    t = tmin + np.arange(n, dtype=np.float64) * tstep
+    data = 2.0 + 0.5 * np.sin(2 * np.pi * 0.5 * t) + 0.5 * rs.randn(n)
+    uts = UTS(tmin, tstep, n)
+    return NDVar(data.astype(np.float64), uts, name="acoustic_envelop")
+
+
+def _ensure_synthetic_envelope(e):
+    """Bypass: write synthetic envelopes to e.get('predictor-dir') for all stimuli. Not for real analysis."""
+    pred_dir = Path(e.get("predictor-dir"))
+    pred_dir.mkdir(parents=True, exist_ok=True)
+    x = _make_synthetic_ndvar()
+    for stimulus in ["Appleseed", "Tone"]:
+        path = pred_dir / f"{stimulus}~acoustic_envelop.pickle"
+        save.pickle(x, path)
+    _log(f"Wrote synthetic envelopes to {pred_dir} (bypass only).")
+
+
 DATA_ROOT = "~/Data/BIDS"  # set to your data root
 
 # Only run sub-01 (exclude the rest so pipeline is fast).
@@ -43,6 +70,7 @@ class AppleSeed(TRFExperiment):
     }
     tests = {}
 
+    # Example estimators
     estimators = {
         # partitions required when n_cases not in 3..10 (e.g. 22 trials)
         "boosting": BoostingEstimator(basis=0.050, partitions=5),
@@ -54,66 +82,75 @@ class AppleSeed(TRFExperiment):
 # example usage of estimators
 def example_usage():
     e = AppleSeed(DATA_ROOT)
+    _log(f"Example run with DATA_ROOT={DATA_ROOT}")
+    _log(f"Predictor dir: {e.get('predictor-dir')}")
 
     # Use named estimator (parameters come from e.estimators['boosting'])
+    _log("Loading TRF with estimator='boosting'...")
     boosting_trf = e.load_trf("acoustic_envelop", 0, 0.500, estimator="boosting")
 
     # Different estimator → different cache file
+    _log("Loading TRF with estimator='boosting-l2'...")
     boosting_l2_trf = e.load_trf("acoustic_envelop", 0, 0.500, estimator="boosting-l2")
 
     # NCRF estimators (when using source-space / inv)
     # ncrf_trf = e.load_trf("acoustic_envelop", 0, 0.500, estimator="ncrf")
     # ncrf_fast_trf = e.load_trf("acoustic_envelop", 0, 0.500, estimator="ncrf-fast")
+    return boosting_trf, boosting_l2_trf
 
-# original usage
-def legacy_usage():
+def estimator_pipeline_usage(estimator: str = "boosting"):
+    """Run TRF with estimator config from AppleSeed.estimators.
+
+    Note: NCRF requires source-space data and a valid inverse (inv).
+    """
     e = AppleSeed(DATA_ROOT)
-    # All params passed explicitly; no .estimators used
+    e.set(subject="01")
+    _log(f"Initialized experiment with DATA_ROOT={DATA_ROOT}")
+    data = "meg"
+    inv = None
+    mask = None
+    if estimator.startswith("ncrf"):
+        data = "source"
+        inv = "ncrf"
+        parcs = sorted(getattr(e, "_parcs", {}).keys())
+        if parcs:
+            mask = "aparc" if "aparc" in parcs else parcs[0]
+        else:
+            _log("No parcellations available; NCRF requires a source-space mask (parc).")
+            _log("Please create a parcellation or set one in the experiment, then retry.")
+            return None
+    _log(f"Subject={e.get('subject')}, Epoch={e.get('epoch')}, Data={data!r}, inv={inv!r}, mask={mask!r}")
+    _ensure_synthetic_envelope(e)
+    trf_path = e.load_trf(
+        "acoustic_envelop",
+        tstart=0,
+        tstop=0.500,
+        estimator=estimator,
+        data=data,
+        inv=inv,
+        mask=mask,
+        path_only=True,
+    )
+    _log(f"TRF cache path: {trf_path}")
+    _log(f"Running TRF for sub-01 with estimator={estimator!r} (make=True, data={data!r}, inv={inv!r})...")
     trf = e.load_trf(
         "acoustic_envelop",
-        0,
-        0.500,
-        basis=0.050,
-        delta=0.005,
-        error="l1",
-        partitions=None,
-        cv=True,
+        tstart=0,
+        tstop=0.500,
+        estimator=estimator,
+        make=True,
+        data=data,
+        inv=inv,
+        mask=mask,
     )
-
-
-def _make_synthetic_ndvar():
-    """NDVar from -5000s to +5000s so any epoch tmin/tmax falls inside (avoids pad zeros -> flat)."""
-    tstep = 0.01
-    tmin = -5000.0
-    n = 1000000  # 10000 s total
-    rs = np.random.RandomState(42)
-    t = tmin + np.arange(n, dtype=np.float64) * tstep
-    data = 2.0 + 0.5 * np.sin(2 * np.pi * 0.5 * t) + 0.5 * rs.randn(n)
-    uts = UTS(tmin, tstep, n)
-    return NDVar(data.astype(np.float64), uts, name="acoustic_envelop")
-
-
-def _ensure_synthetic_envelope(e):
-    """Bypass: write synthetic envelopes to e.get('predictor-dir') for all stimuli. Not for real analysis."""
-    pred_dir = Path(e.get("predictor-dir"))
-    pred_dir.mkdir(parents=True, exist_ok=True)
-    x = _make_synthetic_ndvar()
-    for stimulus in ["Appleseed", "Tone"]:
-        path = pred_dir / f"{stimulus}~acoustic_envelop.pickle"
-        save.pickle(x, path)
-    print(f"Wrote synthetic envelopes to {pred_dir} (bypass only).")
+    _log(f"Done: {trf}")
+    return trf
 
 
 def run_sub01_only():
-    """Fastest path: only sub-01, one TRF, make=True to compute if missing."""
-    e = AppleSeed(DATA_ROOT)
-    e.set(subject="01")
-    _ensure_synthetic_envelope(e)  # use experiment's predictor-dir
-    print("Running TRF for sub-01 (make=True)...")
-    # Use sensor space (meg) so no parcellation mask is required
-    trf = e.load_trf("acoustic_envelop", 0, 0.500, estimator="ncrf", make=True, data="meg")
-    print("Done:", trf)
-    return trf
+    """Fast path using named estimator from the experiment."""
+    # NCRF requires source-space data and a valid inverse (inv).
+    return estimator_pipeline_usage("ncrf")
 
 
 if __name__ == "__main__":
