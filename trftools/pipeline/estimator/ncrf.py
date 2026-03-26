@@ -1,5 +1,7 @@
 from .estimator import Estimator
 from typing import Dict, Any
+
+
 class NCRFEstimator(Estimator):
     name: str = "ncrf"
 
@@ -12,7 +14,7 @@ class NCRFEstimator(Estimator):
         self.in_place = in_place
     
     def parameters_for_partial(self) -> Dict[str, Any]:
-        return {
+        params = {
             "mu": self.mu,
             "n_iter": self.n_iter,
             "n_iterf": self.n_iterf,
@@ -20,3 +22,4 @@ class NCRFEstimator(Estimator):
             "normalize": self.normalize,
             "in_place": self.in_place,
         }
+        return {key: value for key, value in params.items() if value is not None}

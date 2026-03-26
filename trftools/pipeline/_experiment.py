@@ -13,7 +13,9 @@ from pathlib import Path
 from pyparsing import ParseException
 import re
 import time
+import types
 from typing import Any, Callable, Dict, Iterator, List, Literal, Optional, Sequence, Tuple, Union
+import sys
 import warnings
 
 import eelbrain
@@ -85,6 +87,23 @@ class FilenameTooLong(Exception):
 
 def split_model(x):
     return [v.strip() for v in x.split('+')]
+
+
+def _ensure_ncrf_numpy_compat():
+    """Provide a fallback for NumPy's removed private inner1d helper used by ncrf."""
+    module_name = 'numpy.core.umath_tests'
+    if module_name in sys.modules:
+        return
+
+    shim = types.ModuleType(module_name)
+
+    def inner1d(a, b):
+        a = np.asarray(a)
+        b = np.asarray(b)
+        return np.einsum('...i,...i->...', a, b)
+
+    shim.inner1d = inner1d
+    sys.modules[module_name] = shim
 
 
 def difference_maps(dss):
@@ -233,9 +252,13 @@ class TRFExperiment(Pipeline):
                         rm['model-report-file'].add(state)
 
         # epochs are based on events
-        for subject, recording in invalid_cache['events']:
+        for item in invalid_cache['events']:
+            # Eelbrain versions may store 2-tuples or longer (e.g. include session/run)
+            subject = item[0]
+            recording = item[1]
             for epoch, params in self._epochs.items():
-                if recording not in params.sessions:
+                sessions = getattr(params, 'sessions', None)
+                if sessions is not None and recording not in sessions:
                     continue
                 rm['trf-file'].add({'subject': subject, 'epoch': epoch})
 
@@ -1236,10 +1259,13 @@ class TRFExperiment(Pipeline):
                     y = [yi.sub(sensor=cov.ch_names) for yi in y]
                 else:
                     y = y.sub(sensor=cov.ch_names)
+            _ensure_ncrf_numpy_compat()
             from ncrf import fit_ncrf
             if estimator is not None:
                 ncrf_args = {**ncrf_args, **estimator.parameters_for_partial()}
-            return partial(fit_ncrf, y, xs, fwd, cov, tstart, tstop, normalize=True, in_place=True, **ncrf_args)
+            ncrf_args.setdefault('normalize', True)
+            ncrf_args.setdefault('in_place', True)
+            return partial(fit_ncrf, y, xs, fwd, cov, tstart, tstop, **ncrf_args)
         return partial(boosting, y, xs, tstart, tstop, 'inplace', **boosting_args)
 
     def load_trfs(

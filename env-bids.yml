@@ -14,4 +14,4 @@ dependencies:
 - seaborn
 - pip:
   - gammatone
-  - https://github.com/christianbrodbeck/TRF-Tools/archive/refs/heads/bids.zip
+  - https://github.com/christianbrodbeck/TRF-Tools/archive/main.zip

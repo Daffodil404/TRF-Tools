@@ -33,8 +33,24 @@ def _ensure_synthetic_envelope(e):
         save.pickle(x, path)
     _log(f"Wrote synthetic envelopes to {pred_dir} (bypass only).")
 
+def _ensure_unsplit_meg(root: str, subject: str):
+    """Create symlinks for split FIF files so BIDS lookup can find unsplit names."""
+    meg_dir = Path(root) / f"sub-{subject}" / "meg"
+    if not meg_dir.exists():
+        return
+    for split in meg_dir.glob(f"sub-{subject}_task-*_run-*_split-01_meg.fif"):
+        unsplit = Path(str(split).replace("_split-01_meg.fif", "_meg.fif"))
+        if unsplit.exists():
+            continue
+        try:
+            unsplit.symlink_to(split.name)
+            _log(f"Linked {unsplit.name} -> {split.name}")
+        except OSError:
+            # If symlink fails (e.g., permissions), fall back silently
+            pass
 
-DATA_ROOT = "~/Data/BIDS"  # set to your data root
+
+DATA_ROOT = str(Path("~/Data/BIDS").expanduser())  # set to your data root
 
 # Only run sub-01 (exclude the rest so pipeline is fast).
 # MNE-BIDS get_entity_vals returns subject *values* (no "sub-" prefix): "01", "02", "emptyroom".
@@ -56,6 +72,8 @@ class AppleSeed(TRFExperiment):
     # At least one epoch required for load_trf. Task name must match BIDS (e.g. task-Appleseed in filenames).
     epochs = {
         "Appleseed": PrimaryEpoch("Appleseed", None, samplingrate=100),
+        # Minimal covariance epoch for source-space/NCRF demos.
+        "cov": PrimaryEpoch("Appleseed", None, tmin=-0.100, tmax=0.0, samplingrate=100),
     }
     defaults = {"epoch": "Appleseed"}
 
@@ -106,6 +124,8 @@ def estimator_pipeline_usage(estimator: str = "boosting"):
     e = AppleSeed(DATA_ROOT)
     e.set(subject="01")
     _log(f"Initialized experiment with DATA_ROOT={DATA_ROOT}")
+    # Bypass for split FIFs: ensure unsplit filenames exist for BIDS lookup
+    _ensure_unsplit_meg(DATA_ROOT, "01")
     data = "meg"
     inv = None
     mask = None
