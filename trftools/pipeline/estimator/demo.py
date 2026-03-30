@@ -50,7 +50,7 @@ def _ensure_unsplit_meg(root: str, subject: str):
             pass
 
 
-DATA_ROOT = str(Path("~/Data/BIDS").expanduser())  # set to your data root
+DATA_ROOT = "/Users/yanyuwoo/Data/Appleseed_BIDS_20251216 2"
 
 # Only run sub-01 (exclude the rest so pipeline is fast).
 # MNE-BIDS get_entity_vals returns subject *values* (no "sub-" prefix): "01", "02", "emptyroom".
@@ -62,7 +62,7 @@ IGNORE_SUBJECTS = [
 
 class AppleSeed(TRFExperiment):
     data_dir = "meg"
-    subject_re = r"sub-\d+"  # BIDS: sub-01, sub-02, ...
+    subject_re = r"sub-[A-Za-z0-9]+"  # BIDS subjects, e.g. sub-01 or sub-R2677
     sessions = ["Appleseed"]  # must match BIDS task name in filenames
     # MNE-BIDS get_entity_vals() expects "ignore_subjects", not "subject"
     ignore_entities = {"ignore_subjects": IGNORE_SUBJECTS}
@@ -80,6 +80,10 @@ class AppleSeed(TRFExperiment):
     # Predictor "acoustic_envelop" must exist as derivatives/predictors/{stimulus}~acoustic_envelop.pickle
     predictors = {
         "acoustic_envelop": FilePredictor(),
+    }
+
+    models = {
+        "acoustic_envelop": "acoustic_envelop",
     }
 
     # Pipeline needs a "stimulus" column to load predictors. Create it from BIDS "task" (exists in events).
@@ -100,6 +104,7 @@ class AppleSeed(TRFExperiment):
 # example usage of estimators
 def example_usage():
     e = AppleSeed(DATA_ROOT)
+    e._register_model(e._coerce_model("acoustic_envelop"))
     _log(f"Example run with DATA_ROOT={DATA_ROOT}")
     _log(f"Predictor dir: {e.get('predictor-dir')}")
 
@@ -122,10 +127,15 @@ def estimator_pipeline_usage(estimator: str = "boosting"):
     Note: NCRF requires source-space data and a valid inverse (inv).
     """
     e = AppleSeed(DATA_ROOT)
-    e.set(subject="01")
+    e._register_model(e._coerce_model("acoustic_envelop"))
+    subjects = [s for s in (e._field_values.get("subject") or ()) if s != "emptyroom"]
+    if not subjects:
+        raise RuntimeError(f"No non-emptyroom subjects found under {DATA_ROOT}")
+    subject = subjects[0]
+    e.set(subject=subject)
     _log(f"Initialized experiment with DATA_ROOT={DATA_ROOT}")
     # Bypass for split FIFs: ensure unsplit filenames exist for BIDS lookup
-    _ensure_unsplit_meg(DATA_ROOT, "01")
+    # _ensure_unsplit_meg(DATA_ROOT, subject)
     data = "meg"
     inv = None
     mask = None
