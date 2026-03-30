@@ -28,7 +28,7 @@ def _ensure_synthetic_envelope(e):
     pred_dir = Path(e.get("predictor-dir"))
     pred_dir.mkdir(parents=True, exist_ok=True)
     x = _make_synthetic_ndvar()
-    for stimulus in ["Appleseed", "Tone"]:
+    for stimulus in ["Appleseed"]:
         path = pred_dir / f"{stimulus}~acoustic_envelop.pickle"
         save.pickle(x, path)
     _log(f"Wrote synthetic envelopes to {pred_dir} (bypass only).")
@@ -50,7 +50,7 @@ def _ensure_unsplit_meg(root: str, subject: str):
             pass
 
 
-DATA_ROOT = "/Users/yanyuwoo/Data/Appleseed_BIDS_20251216 2"
+DATA_ROOT = "/Users/yanyuwoo/Data/Appleseed_BIDS_20251216"
 
 # Only run sub-01 (exclude the rest so pipeline is fast).
 # MNE-BIDS get_entity_vals returns subject *values* (no "sub-" prefix): "01", "02", "emptyroom".
@@ -86,9 +86,11 @@ class AppleSeed(TRFExperiment):
         "acoustic_envelop": "acoustic_envelop",
     }
 
-    # Pipeline needs a "stimulus" column to load predictors. Create it from BIDS "task" (exists in events).
+    # Pipeline needs a "stimulus" column to load predictors. Eelbrain derives
+    # events from the raw stimulus channel here, so use trigger codes rather
+    # than relying on columns from the BIDS events.tsv.
     variables = {
-        "stimulus": LabelVar("task", {"Appleseed": "Appleseed", "Tone": "Tone"}),
+        "stimulus": LabelVar("trigger", {(162, 167): "Appleseed"}),
     }
     tests = {}
 
