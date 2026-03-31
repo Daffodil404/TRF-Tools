@@ -982,6 +982,8 @@ class TRFExperiment(Pipeline):
         x = self._coerce_model(x)
         # Resolve estimator (str -> instance) and apply effective params
         estimator = self._resolve_estimator(estimator)
+        if estimator is not None:
+            data, mask, state = estimator.normalize_trf_args(self, data, mask, state)
         effective = self._apply_estimator_params(
             estimator,
             delta=delta,
@@ -1006,7 +1008,7 @@ class TRFExperiment(Pipeline):
         if isinstance(epoch, EpochCollection):
             raise ValueError(f"epoch={epoch.name!r} (use .load_trfs() to load multiple TRFs from a collection epoch)")
         # check cache
-        dst = self._locate_trf(x, tstart, tstop, basis, error, partitions, samplingrate, mask, delta, mindelta, filter_x, selective_stopping, cv, data, backward, make)
+        dst = self._locate_trf(x, tstart, tstop, basis, error, partitions, samplingrate, mask, delta, mindelta, filter_x, selective_stopping, cv, data, backward, make, **state)
         if path_only:
             return dst
         elif exists(dst) and cache_valid(getmtime(dst), self._epochs_mtime()):
@@ -1067,7 +1069,7 @@ class TRFExperiment(Pipeline):
             raise IOError(f"TRF {relpath(dst, self.get('root'))} does not exist (model {model_desc!r}); set make=True to compute it.")
 
         self._log.info("Computing TRF:  %s %s %s %s", self.get('subject'), data.string, '->' if backward else '<-', x.name)
-        func = self._trf_job(x, tstart, tstop, basis, error, partitions, samplingrate, mask, delta, mindelta, filter_x, selective_stopping, cv, data, backward, partition_results, estimator=estimator)
+        func = self._trf_job(x, tstart, tstop, basis, error, partitions, samplingrate, mask, delta, mindelta, filter_x, selective_stopping, cv, data, backward, partition_results, estimator=estimator, **state)
         if func is None:
             res = load.unpickle(dst)  # _trf_job() created a link from an equivalent result (NCRF)
         else:
@@ -1134,7 +1136,11 @@ class TRFExperiment(Pipeline):
         if not x:
             return
 
-        if data.source:
+        if estimator is not None and getattr(estimator, 'name', None) == 'ncrf':
+            inv = 'ncrf'
+            m = NCRF_RE.match(inv)
+            data = TestDims('sensor')
+        elif data.source:
             inv = self.get('inv')
             m = NCRF_RE.match(inv)
             if m:

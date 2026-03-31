@@ -1,5 +1,6 @@
 from .estimator import Estimator
 from typing import Dict, Any
+from eelbrain._experiment.mne_experiment import TestDims
 
 
 class NCRFEstimator(Estimator):
@@ -23,3 +24,29 @@ class NCRFEstimator(Estimator):
             "in_place": self.in_place,
         }
         return {key: value for key, value in params.items() if value is not None}
+
+    def normalize_trf_args(self, experiment, data, mask, state):
+        state = dict(state)
+
+        if data.source or not data.sensor:
+            experiment._log.warning(
+                "Ignoring data=%r for estimator='ncrf'; using sensor data for compatibility.",
+                data.string,
+            )
+        data = TestDims('sensor')
+
+        if mask is not None:
+            experiment._log.warning(
+                "Ignoring mask=%r for estimator='ncrf'; whole-brain NCRF does not use masks.",
+                mask,
+            )
+            mask = None
+
+        if 'inv' in state and state['inv'] is not None:
+            experiment._log.warning(
+                "Ignoring inv=%r for estimator='ncrf'; NCRF does not use an MNE inverse estimator.",
+                state['inv'],
+            )
+            state.pop('inv')
+
+        return data, mask, state

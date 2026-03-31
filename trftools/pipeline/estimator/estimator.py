@@ -13,3 +13,7 @@ class Estimator:
         Subclasses override this to return their estimator-specific parameters.
         """
         return {}
+
+    def normalize_trf_args(self, experiment, data, mask, state):
+        """Normalize estimator-specific TRF args while preserving public API compatibility."""
+        return data, mask, dict(state)
