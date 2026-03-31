@@ -2201,7 +2201,7 @@ class TRFExperiment(Pipeline):
             - ``z``:   z-transformed correlation
             - ``r1``:  1 correlation
             - ``z1``:  z-transformed l1 correlation
-            - ``residual``: Residual form model fit
+            - ``residual``: Residual from model fit
             - ``det``: Proportion of the explained variability
 
         smooth

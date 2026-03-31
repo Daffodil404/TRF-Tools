@@ -4,7 +4,7 @@
 ********
 Pipeline
 ********
-The :mod:`pipeline` module provides an extension of the Eelbrain `MNE-Experiment pipeline <https://eelbrain.readthedocs.io/en/stable/experiment.html>`_ for mTRF analysis.
+The :mod:`pipeline` module provides an extension of the Eelbrain `MNE-Experiment pipeline <https://eelbrain.readthedocs.io/en/latest/experiment.html>`_ for mTRF analysis.
 
 ^^^^^^^^^^^^^^^^
 Module Reference
