@@ -1137,10 +1137,18 @@ class TRFExperiment(Pipeline):
             return
 
         if estimator is not None and getattr(estimator, 'name', None) == 'ncrf':
-            inv = 'ncrf'
-            m = NCRF_RE.match(inv)
-            data = TestDims('sensor')
-        elif data.source:
+            return self._trf_job_ncrf_estimator(
+                x,
+                tstart,
+                tstop,
+                partitions,
+                samplingrate,
+                filter_x,
+                data,
+                estimator,
+            )
+
+        if data.source:
             inv = self.get('inv')
             m = NCRF_RE.match(inv)
             if m:
@@ -1273,6 +1281,59 @@ class TRFExperiment(Pipeline):
             ncrf_args.setdefault('in_place', True)
             return partial(fit_ncrf, y, xs, fwd, cov, tstart, tstop, **ncrf_args)
         return partial(boosting, y, xs, tstart, tstop, 'inplace', **boosting_args)
+
+    def _trf_job_ncrf_estimator(
+            self,
+            x: Model,
+            tstart: float,
+            tstop: float,
+            partitions: int,
+            samplingrate: int,
+            filter_x: FilterXArg,
+            data: DataArg,
+            estimator: Estimator,
+    ) -> Callable:
+        "Return NCRF fit job for estimator-driven entry points."
+        ds = self.load_epochs(samplingrate=samplingrate, data=data)
+        y = ds[data.y_name]
+        is_variable_time = isinstance(y, Datalist)
+
+        xs = []
+        for term in sorted(x.term_names):
+            code = Code.coerce(term)
+            self.add_predictor(ds, code, filter_x, data.y_name)
+            xs.append(ds[code.key])
+
+        if partitions < 0:
+            partitions = None if partitions == -1 else -partitions
+            y = concatenate(y)
+            xs = [concatenate(x_) for x_ in xs]
+
+        if len(xs) == 1:
+            xs = xs[0]
+        else:
+            names = [x_.name for x_ in xs]
+            if len(set(names)) < len(names):
+                raise ValueError(f"Multiple predictors with same name: {', '.join(names)}")
+            if is_variable_time:
+                xs = list(zip(*xs))
+
+        y0 = y[0] if is_variable_time else y
+        fwd = self.load_fwd(ndvar=True)
+        cov = self.load_cov()
+        if set(y0.sensor.names).difference(cov.ch_names):
+            if is_variable_time:
+                y = [yi.sub(sensor=cov.ch_names) for yi in y]
+            else:
+                y = y.sub(sensor=cov.ch_names)
+
+        _ensure_ncrf_numpy_compat()
+        from ncrf import fit_ncrf
+
+        ncrf_args = {'mu': 'auto', **estimator.parameters_for_partial()}
+        ncrf_args.setdefault('normalize', True)
+        ncrf_args.setdefault('in_place', True)
+        return partial(fit_ncrf, y, xs, fwd, cov, tstart, tstop, **ncrf_args)
 
     def load_trfs(
             self,

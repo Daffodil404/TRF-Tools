@@ -1,6 +1,4 @@
 from pathlib import Path
-import numpy as np
-from eelbrain import save, NDVar, UTS
 from eelbrain.pipeline import RawFilter, PrimaryEpoch, LabelVar
 
 from trftools.pipeline import TRFExperiment, FilePredictor
@@ -11,28 +9,13 @@ def _log(msg: str):
     print(f"[demo] {msg}")
 
 
-def _make_synthetic_ndvar():
-    """NDVar from -5000s to +5000s so any epoch tmin/tmax falls inside (avoids pad zeros -> flat)."""
-    tstep = 0.01
-    tmin = -5000.0
-    n = 1000000  # 10000 s total
-    rs = np.random.RandomState(42)
-    t = tmin + np.arange(n, dtype=np.float64) * tstep
-    data = 2.0 + 0.5 * np.sin(2 * np.pi * 0.5 * t) + 0.5 * rs.randn(n)
-    uts = UTS(tmin, tstep, n)
-    return NDVar(data.astype(np.float64), uts, name="acoustic_envelop")
-
-# TODO: use real predictor
-# TODO: wait for real wav files
-def _ensure_synthetic_envelope(e):
-    """Write a synthetic predictor for smoke testing. Not for real analysis."""
+def _ensure_demo_predictor(e):
+    """Check that the real demo predictor exists."""
     pred_dir = Path(e.get("predictor-dir"))
-    pred_dir.mkdir(parents=True, exist_ok=True)
-    x = _make_synthetic_ndvar()
-    for stimulus in ["Appleseed"]:
-        path = pred_dir / f"{stimulus}~acoustic_envelop.pickle"
-        save.pickle(x, path)
-    _log(f"Wrote synthetic envelopes to {pred_dir} (bypass only).")
+    target = pred_dir / "Appleseed~acoustic_envelop.pickle"
+    if not target.exists():
+        raise FileNotFoundError(f"Required predictor file not found: {target}")
+    _log(f"Using predictor {target.name}.")
 
 
 DATA_ROOT = "/Users/yanyuwoo/Data/Appleseed_BIDS_20251216"
@@ -62,7 +45,7 @@ class AppleSeed(TRFExperiment):
     }
     defaults = {"epoch": "Appleseed"}
 
-    # Predictor "acoustic_envelop" must exist as derivatives/predictors/{stimulus}~acoustic_envelop.pickle
+    # Predictor must exist as derivatives/predictors/{stimulus}~acoustic_envelop.pickle
     predictors = {
         "acoustic_envelop": FilePredictor(),
     }
@@ -121,7 +104,7 @@ def _run_demo(estimator: str, **load_trf_kwargs):
     e = _init_demo_experiment()
     _log(f"Initialized experiment with DATA_ROOT={DATA_ROOT}")
     _log(f"Subject={e.get('subject')}, Epoch={e.get('epoch')}, Estimator={estimator!r}, Options={load_trf_kwargs!r}")
-    _ensure_synthetic_envelope(e)
+    _ensure_demo_predictor(e)
     trf_path = e.load_trf(
         "acoustic_envelop",
         tstart=0,
