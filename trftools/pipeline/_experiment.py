@@ -89,23 +89,6 @@ def split_model(x):
     return [v.strip() for v in x.split('+')]
 
 
-def _ensure_ncrf_numpy_compat():
-    """Provide a fallback for NumPy's removed private inner1d helper used by ncrf."""
-    module_name = 'numpy.core.umath_tests'
-    if module_name in sys.modules:
-        return
-
-    shim = types.ModuleType(module_name)
-
-    def inner1d(a, b):
-        a = np.asarray(a)
-        b = np.asarray(b)
-        return np.einsum('...i,...i->...', a, b)
-
-    shim.inner1d = inner1d
-    sys.modules[module_name] = shim
-
-
 def difference_maps(dss):
     """Difference maps for model comparison"""
     diffs = {}
@@ -1273,7 +1256,6 @@ class TRFExperiment(Pipeline):
                     y = [yi.sub(sensor=cov.ch_names) for yi in y]
                 else:
                     y = y.sub(sensor=cov.ch_names)
-            _ensure_ncrf_numpy_compat()
             from ncrf import fit_ncrf
             if estimator is not None:
                 ncrf_args = {**ncrf_args, **estimator.parameters_for_partial()}
@@ -1327,7 +1309,6 @@ class TRFExperiment(Pipeline):
             else:
                 y = y.sub(sensor=cov.ch_names)
 
-        _ensure_ncrf_numpy_compat()
         from ncrf import fit_ncrf
 
         ncrf_args = {'mu': 'auto', **estimator.parameters_for_partial()}
