@@ -22,7 +22,8 @@ def _make_synthetic_ndvar():
     uts = UTS(tmin, tstep, n)
     return NDVar(data.astype(np.float64), uts, name="acoustic_envelop")
 
-
+# TODO: use real predictor
+# TODO: wait for real wav files
 def _ensure_synthetic_envelope(e):
     """Write a synthetic predictor for smoke testing. Not for real analysis."""
     pred_dir = Path(e.get("predictor-dir"))
@@ -150,7 +151,7 @@ def run_boosting_demo():
 
 def run_ncrf_demo():
     """Recommended NCRF demo: let the estimator choose its own valid semantics."""
-    return _run_demo("ncrf")
+    return _run_demo("ncrf", data="meg")
 
 
 def run_ncrf_compat_demo():

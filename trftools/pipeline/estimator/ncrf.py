@@ -29,24 +29,22 @@ class NCRFEstimator(Estimator):
         state = dict(state)
 
         if data.source or not data.sensor:
-            experiment._log.warning(
-                "Ignoring data=%r for estimator='ncrf'; using sensor data for compatibility.",
-                data.string,
+            raise ValueError(
+                f"estimator='ncrf' does not accept data={data.string!r}; "
+                "use sensor data ('meg' or 'eeg')."
             )
-        data = TestDims('sensor')
+        data = TestDims(data.string)
 
         if mask is not None:
-            experiment._log.warning(
-                "Ignoring mask=%r for estimator='ncrf'; whole-brain NCRF does not use masks.",
-                mask,
+            raise ValueError(
+                f"estimator='ncrf' does not accept mask={mask!r}; "
+                "NCRF should be estimated without a source-space mask."
             )
-            mask = None
 
         if 'inv' in state and state['inv'] is not None:
-            experiment._log.warning(
-                "Ignoring inv=%r for estimator='ncrf'; NCRF does not use an MNE inverse estimator.",
-                state['inv'],
+            raise ValueError(
+                f"estimator='ncrf' does not accept inv={state['inv']!r}; "
+                "NCRF does not use an MNE inverse estimator."
             )
-            state.pop('inv')
 
         return data, mask, state
