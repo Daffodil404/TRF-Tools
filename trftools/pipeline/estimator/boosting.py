@@ -15,6 +15,7 @@ tstart & tstop are parameters of load_trf/load_trfs, not of the estimator.
 from typing import Any, Dict, Optional
 from .estimator import Estimator
 
+# Concrete strategy implementation for BoostingEstimator
 class BoostingEstimator(Estimator):
     def __init__(
         self,

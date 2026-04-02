@@ -2,7 +2,7 @@ from .estimator import Estimator
 from typing import Dict, Any
 from eelbrain._experiment.mne_experiment import TestDims
 
-
+# Concrete strategy implementation for NCRFEstimator
 class NCRFEstimator(Estimator):
     name: str = "ncrf"
 

@@ -18,22 +18,25 @@ def _ensure_demo_predictor(e):
     _log(f"Using predictor {target.name}.")
 
 
-DATA_ROOT = "/Users/yanyuwoo/Data/Appleseed_BIDS_20251216"
+# Path for BIDS (Brain Imaging Data Structure) data
+# example:
+# sub-R2349/ (subject)
+#   ├── meg/ (meg raw data)
+#   ├── anat/ (mri data)
+# derivatives/
+#   ├── predictors/ (predictor files)
+#   ├── ica/ (noise removal results)
+#   ├── freesurfer/ (map MEG signals from sensors → brain surfaces)
+#   ├── trans/ (coordinate alignment)
+#   ├── eelbrain/ (Store intermediate results used by the TRF pipeline)
 
-# Only run sub-01 (exclude the rest so pipeline is fast).
-# MNE-BIDS get_entity_vals returns subject *values* (no "sub-" prefix): "01", "02", "emptyroom".
-IGNORE_SUBJECTS = [
-    "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12",
-    "emptyroom",
-]
+DATA_ROOT = "/Users/yanyuwoo/Data/Appleseed_BIDS_20251216"
 
 
 class AppleSeed(TRFExperiment):
     data_dir = "meg"
     subject_re = r"sub-[A-Za-z0-9]+"  # BIDS subjects, e.g. sub-01 or sub-R2677
     sessions = ["Appleseed"]  # must match BIDS task name in filenames
-    # MNE-BIDS get_entity_vals() expects "ignore_subjects", not "subject"
-    ignore_entities = {"ignore_subjects": IGNORE_SUBJECTS}
 
     raw = {"0.5-20": RawFilter("raw", 0.5, 20, cache=False)}
 
@@ -62,7 +65,7 @@ class AppleSeed(TRFExperiment):
     }
     tests = {}
 
-    # Example estimators
+    # Estimators registry
     estimators = {
         # partitions required when n_cases not in 3..10 (e.g. 22 trials)
         "boosting": BoostingEstimator(basis=0.050, partitions=5),
@@ -71,6 +74,7 @@ class AppleSeed(TRFExperiment):
         "ncrf-fast": NCRFEstimator(mu=0.01, n_iter=10),
     }
 
+# Initialize the demo experiment
 def _init_demo_experiment() -> AppleSeed:
     e = AppleSeed(DATA_ROOT)
     e._register_model(e._coerce_model("acoustic_envelop"))
@@ -81,39 +85,12 @@ def _init_demo_experiment() -> AppleSeed:
     e.set(subject=subject)
     return e
 
-
-def example_usage():
-    e = _init_demo_experiment()
-    _log(f"Example run with DATA_ROOT={DATA_ROOT}")
-    _log(f"Predictor dir: {e.get('predictor-dir')}")
-
-    # Use named estimator (parameters come from e.estimators['boosting'])
-    _log("Loading TRF with estimator='boosting'...")
-    boosting_trf = e.load_trf("acoustic_envelop", 0, 0.500, estimator="boosting")
-
-    # Different estimator → different cache file
-    _log("Loading TRF with estimator='boosting-l2'...")
-    boosting_l2_trf = e.load_trf("acoustic_envelop", 0, 0.500, estimator="boosting-l2")
-
-    # NCRF estimators are demonstrated by run_ncrf_demo()
-    # ncrf_trf = e.load_trf("acoustic_envelop", 0, 0.500, estimator="ncrf")
-    # ncrf_fast_trf = e.load_trf("acoustic_envelop", 0, 0.500, estimator="ncrf-fast")
-    return boosting_trf, boosting_l2_trf
-
+# Run the demo
 def _run_demo(estimator: str, **load_trf_kwargs):
     e = _init_demo_experiment()
     _log(f"Initialized experiment with DATA_ROOT={DATA_ROOT}")
     _log(f"Subject={e.get('subject')}, Epoch={e.get('epoch')}, Estimator={estimator!r}, Options={load_trf_kwargs!r}")
     _ensure_demo_predictor(e)
-    trf_path = e.load_trf(
-        "acoustic_envelop",
-        tstart=0,
-        tstop=0.500,
-        estimator=estimator,
-        path_only=True,
-        **load_trf_kwargs,
-    )
-    _log(f"TRF cache path: {trf_path}")
     _log(f"Running TRF with estimator={estimator!r} (make=True)...")
     trf = e.load_trf(
         "acoustic_envelop",

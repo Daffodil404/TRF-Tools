@@ -1,7 +1,7 @@
 # Base class for TRF estimators
 from typing import Any, Dict
 
-
+# Abstract strategy interface
 class Estimator:
     """Base for TRF estimator configs. Subclasses override parameters_for_partial()."""
 
