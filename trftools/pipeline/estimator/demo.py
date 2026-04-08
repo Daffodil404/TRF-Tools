@@ -110,7 +110,7 @@ def run_boosting_demo():
 
 
 def run_ncrf_demo():
-    """Recommended NCRF demo: let the estimator choose its own valid semantics."""
+    """Recommended NCRF demo: let the estimator choose  its own valid semantics."""
     return _run_demo("ncrf", data="meg")
 
 
