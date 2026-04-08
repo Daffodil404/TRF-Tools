@@ -110,13 +110,8 @@ def run_boosting_demo():
 
 
 def run_ncrf_demo():
-    """Recommended NCRF demo: let the estimator choose  its own valid semantics."""
-    return _run_demo("ncrf", data="meg")
-
-
-def run_ncrf_compat_demo():
-    """Backward-compatibility demo for legacy NCRF call sites."""
-    return _run_demo("ncrf", data="source", inv="ncrf", mask="aparc")
+    """Recommended NCRF demo with estimator-managed sensor-space semantics."""
+    return _run_demo("ncrf")
 
 
 if __name__ == "__main__":

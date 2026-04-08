@@ -64,24 +64,9 @@ class NCRFEstimator(Estimator):
 
     def normalize_trf_args(self, experiment, data, mask, state):
         state = dict(state)
-
-        if data.source or not data.sensor:
-            raise ValueError(
-                f"estimator='ncrf' does not accept data={data.string!r}; "
-                "use sensor data ('meg' or 'eeg')."
-            )
-        data = TestDims(data.string)
-
-        if mask is not None:
-            raise ValueError(
-                f"estimator='ncrf' does not accept mask={mask!r}; "
-                "NCRF should be estimated without a source-space mask."
-            )
-
-        if 'inv' in state and state['inv'] is not None:
-            raise ValueError(
-                f"estimator='ncrf' does not accept inv={state['inv']!r}; "
-                "NCRF does not use an MNE inverse estimator."
-            )
-
+        # NCRF always operates on sensor data and should not inherit
+        # source-space configuration from the public TRF API.
+        data = TestDims('sensor')
+        mask = None
+        state.pop('inv', None)
         return data, mask, state

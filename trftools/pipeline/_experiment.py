@@ -1286,6 +1286,15 @@ class TRFExperiment(Pipeline):
             self.add_predictor(ds, code, filter_x, data.y_name)
             xs.append(ds[code.key])
 
+        if partitions is None:
+            if is_variable_time:
+                partitions = 1
+            elif (y.time.nsamples * y.time.tstep) / tstop < 30:
+                # Keep chunk size large enough for stable NCRF fits.
+                partitions = -1
+            else:
+                partitions = 1
+
         if partitions < 0:
             partitions = None if partitions == -1 else -partitions
             y = concatenate(y)
