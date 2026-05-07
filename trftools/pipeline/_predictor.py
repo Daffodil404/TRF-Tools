@@ -91,7 +91,7 @@ class FilePredictorBase:
             srate = int_srate if abs(int_srate - srate) < .001 else srate
             x = resample(x, srate)
         elif self.resample is None:
-            raise RuntimeError(f"{path.name} has tstep={x.time.tstep}, not {tstep}. Set the {self.__class__.__name__} resample parameter to enable automatic resampling.")
+            raise RuntimeError(f"{x.name} has tstep={x.time.tstep}, not {tstep}. Set the {self.__class__.__name__} resample parameter to enable automatic resampling.")
         else:
             raise RuntimeError(f"{self.resample=}")
         return x
@@ -333,6 +333,31 @@ class FilePredictor(FilePredictorBase):
             column_key = 'value'
             mask_key = 'mask' if 'mask' in ds else None
 
+        # Time column: prefer 'time', then 'onset', then derive from 'i_start' (sample index) if sfreq in info
+        if 'time' in ds:
+            time_col = 'time'
+        elif 'onset' in ds:
+            time_col = 'onset'
+        elif 'i_start' in ds:
+            sfreq = ds.info.get('sfreq') or ds.info.get('sampling_rate')
+            if sfreq is None:
+                raise KeyError(
+                    "Predictor Dataset has 'i_start' (sample index) but no 'time'/'onset'. "
+                    "Add ds.info['sfreq'] or ds.info['sampling_rate'] to convert to seconds, "
+                    f"or provide a 'time' column. Columns: {list(ds)}"
+                )
+            ds['time'] = ds['i_start'].x.astype(float) / float(sfreq)
+            time_col = 'time'
+        else:
+            raise KeyError(f"Predictor Dataset must have 'time', 'onset', or 'i_start' column; got {list(ds)}")
+
+        # Value column: default 'value'; if missing, use unit impulse (1) when events have 'trigger'
+        if column_key not in ds:
+            if 'trigger' in ds:
+                ds[column_key] = Var(numpy.ones(ds.n_cases))  # unit impulse at each event
+            else:
+                raise KeyError(f"Predictor Dataset must have '{column_key}' or 'trigger' column; got {list(ds)}")
+
         if mask_key:
             mask = ds[mask_key].x
             assert mask.dtype.kind == 'b', "'mask' must be boolean"
@@ -393,15 +418,15 @@ class FilePredictor(FilePredictorBase):
         dt = uts.tstep / 2
         ds = ds[(ds['time'] > uts.tmin - dt) & (ds['time'] < uts.tmax + dt)]
         if x_impulse is not None:
-            for t, v in ds.zip('time', column_key):
+            for t, v in ds.zip(time_col, column_key):
                 x_impulse[t] += v
         if x_step is not None:
-            t_stops = ds[1:, 'time']
+            t_stops = ds[1:, time_col]
             if ds[-1, column_key] != 0:
                 if 'tstop' not in ds.info:
                     raise code.error("For step representation, the predictor datasets needs to contain ds.info['tstop'] to determine the end of the last step", -1)
                 t_stops = chain(t_stops, [ds.info['tstop']])
-            for t0, t1, v in zip(ds['time'], t_stops, ds[column_key]):
+            for t0, t1, v in zip(ds[time_col], t_stops, ds[column_key]):
                 x_step[t0:t1] = v
         return x
 

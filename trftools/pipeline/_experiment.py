@@ -13,7 +13,9 @@ from pathlib import Path
 from pyparsing import ParseException
 import re
 import time
+import types
 from typing import Any, Callable, Dict, Iterator, List, Literal, Optional, Sequence, Tuple, Union
+import sys
 import warnings
 
 import eelbrain
@@ -38,6 +40,7 @@ from eelbrain._utils import ask
 from filelock import FileLock
 import numpy as np
 from numpy import newaxis
+from trftools.pipeline.estimator import Estimator
 
 from .._ndvar import pad
 from .._numpy_funcs import arctanh
@@ -203,6 +206,37 @@ class TRFExperiment(Pipeline):
 
     _parc_supersets = {}
 
+    def _resolve_estimator(self, estimator: Union[str, Estimator, None]) -> Union[Estimator, None]:
+        """Resolve estimator name to an Estimator instance (or None)."""
+        if estimator is None:
+            return None
+        if isinstance(estimator, str):
+            estimators = getattr(self, 'estimators', None)
+            if not isinstance(estimators, dict):
+                raise ValueError("estimator='...' requires experiment.estimators dict")
+            est = estimators.get(estimator)
+            if est is None:
+                raise ValueError(f"estimator={estimator!r} not in {list(estimators.keys())}")
+            estimator = est
+        if not isinstance(estimator, Estimator):
+            raise ValueError(f"estimator must be str or Estimator, got {type(estimator)!r}")
+        return estimator
+
+    def _apply_estimator_params(self, estimator: Union[Estimator, None], **kwargs) -> Dict[str, Any]:
+        """Apply estimator params on top of explicit args and return updated kwargs."""
+        if estimator is None:
+            return kwargs
+        effective = dict(estimator.parameters_for_partial())
+        kwargs['delta'] = effective.get('delta', kwargs.get('delta'))
+        kwargs['mindelta'] = effective.get('mindelta', kwargs.get('mindelta'))
+        kwargs['error'] = effective.get('error', kwargs.get('error'))
+        kwargs['basis'] = effective.get('basis', kwargs.get('basis'))
+        kwargs['partitions'] = effective.get('partitions', kwargs.get('partitions'))
+        kwargs['cv'] = effective.get('test', kwargs.get('cv'))
+        kwargs['selective_stopping'] = effective.get('selective_stopping', kwargs.get('selective_stopping'))
+        kwargs['partition_results'] = effective.get('partition_results', kwargs.get('partition_results'))
+        return kwargs
+
     def _collect_invalid_files(self, invalid_cache, new_state, cache_state):
         rm = Pipeline._collect_invalid_files(self, invalid_cache, new_state, cache_state)
 
@@ -219,9 +253,13 @@ class TRFExperiment(Pipeline):
                         rm['model-report-file'].add(state)
 
         # epochs are based on events
-        for subject, recording in invalid_cache['events']:
+        for item in invalid_cache['events']:
+            # Eelbrain versions may store 2-tuples or longer (e.g. include session/run)
+            subject = item[0]
+            recording = item[1]
             for epoch, params in self._epochs.items():
-                if recording not in params.sessions:
+                sessions = getattr(params, 'sessions', None)
+                if sessions is not None and recording not in sessions:
                     continue
                 rm['trf-file'].add({'subject': subject, 'epoch': epoch})
 
@@ -872,6 +910,7 @@ class TRFExperiment(Pipeline):
             path_only: bool = False,
             partition_results: bool = False,
             morph: bool = False,
+            estimator: Union[str, Estimator, None] = None,
             **state,
     ) -> Union[BoostingResult, str]:
         """TRF estimated with boosting
@@ -928,6 +967,11 @@ class TRFExperiment(Pipeline):
             Keep results for each test-partition (TRFs and model evaluation).
         morph
             Morph source space data to the FSAverage brain.
+        estimator : str | Estimator | None
+            Named estimator key from ``experiment.estimators`` (e.g. ``'boosting'``),
+            or an :class:`~trftools.pipeline.estimator.Estimator` instance. If given,
+            its parameters override the explicit delta/basis/partitions/cv/... arguments
+            and determine the cache path and fitting call.
         ...
             State parameters.
 
@@ -937,12 +981,35 @@ class TRFExperiment(Pipeline):
         """
         data = TestDims.coerce(data, morph=morph)
         x = self._coerce_model(x)
+        # Resolve estimator (str -> instance) and apply effective params
+        estimator = self._resolve_estimator(estimator)
+        if estimator is not None:
+            data, mask, state = estimator.normalize_trf_args(self, data, mask, state)
+        effective = self._apply_estimator_params(
+            estimator,
+            delta=delta,
+            mindelta=mindelta,
+            error=error,
+            basis=basis,
+            partitions=partitions,
+            cv=cv,
+            selective_stopping=selective_stopping,
+            partition_results=partition_results,
+        )
+        delta = effective['delta']
+        mindelta = effective['mindelta']
+        error = effective['error']
+        basis = effective['basis']
+        partitions = effective['partitions']
+        cv = effective['cv']
+        selective_stopping = effective['selective_stopping']
+        partition_results = effective['partition_results']
         # check epoch
         epoch = self._epochs[self.get('epoch', **state)]
         if isinstance(epoch, EpochCollection):
             raise ValueError(f"epoch={epoch.name!r} (use .load_trfs() to load multiple TRFs from a collection epoch)")
         # check cache
-        dst = self._locate_trf(x, tstart, tstop, basis, error, partitions, samplingrate, mask, delta, mindelta, filter_x, selective_stopping, cv, data, backward, make)
+        dst = self._locate_trf(x, tstart, tstop, basis, error, partitions, samplingrate, mask, delta, mindelta, filter_x, selective_stopping, cv, data, backward, make, **state)
         if path_only:
             return dst
         elif exists(dst) and cache_valid(getmtime(dst), self._epochs_mtime()):
@@ -1003,7 +1070,7 @@ class TRFExperiment(Pipeline):
             raise IOError(f"TRF {relpath(dst, self.get('root'))} does not exist (model {model_desc!r}); set make=True to compute it.")
 
         self._log.info("Computing TRF:  %s %s %s %s", self.get('subject'), data.string, '->' if backward else '<-', x.name)
-        func = self._trf_job(x, tstart, tstop, basis, error, partitions, samplingrate, mask, delta, mindelta, filter_x, selective_stopping, cv, data, backward, partition_results)
+        func = self._trf_job(x, tstart, tstop, basis, error, partitions, samplingrate, mask, delta, mindelta, filter_x, selective_stopping, cv, data, backward, partition_results, estimator=estimator, **state)
         if func is None:
             res = load.unpickle(dst)  # _trf_job() created a link from an equivalent result (NCRF)
         else:
@@ -1059,6 +1126,7 @@ class TRFExperiment(Pipeline):
             data: DataArg = DATA_DEFAULT,
             backward: bool = False,
             partition_results: bool = False,
+            estimator: Estimator = None,
             **state,
     ) -> Optional[Callable]:
         "Return function to create TRF result"
@@ -1068,6 +1136,18 @@ class TRFExperiment(Pipeline):
         x = self._coerce_model(x)
         if not x:
             return
+
+        if estimator is not None and getattr(estimator, 'name', None) == 'ncrf':
+            return self._trf_job_ncrf_estimator(
+                x,
+                tstart,
+                tstop,
+                partitions,
+                samplingrate,
+                filter_x,
+                data,
+                estimator,
+            )
 
         if data.source:
             inv = self.get('inv')
@@ -1162,7 +1242,8 @@ class TRFExperiment(Pipeline):
         # reshape data
         if partitions is None:
             if not 3 <= ds.n_cases <= 10:
-                raise TypeError(f"{partitions=}: can't infer partitions parameter for {ds.n_cases} cases")
+                # Default when estimator doesn't set partitions (e.g. NCRF with sensor space) or many cases
+                partitions = min(5, max(2, ds.n_cases // 2))
         elif partitions < 0:
             partitions = None if partitions == -1 else -partitions
             y = concatenate(y)
@@ -1194,8 +1275,73 @@ class TRFExperiment(Pipeline):
                 else:
                     y = y.sub(sensor=cov.ch_names)
             from ncrf import fit_ncrf
-            return partial(fit_ncrf, y, xs, fwd, cov, tstart, tstop, normalize=True, in_place=True, **ncrf_args)
-        return partial(boosting, y, xs, tstart, tstop, 'inplace', delta, mindelta, error, basis, partitions=partitions, test=cv, selective_stopping=selective_stopping, partition_results=partition_results)
+            if estimator is not None:
+                ncrf_args = {**ncrf_args, **estimator.parameters_for_partial()}
+            ncrf_args.setdefault('normalize', True)
+            ncrf_args.setdefault('in_place', True)
+            return partial(fit_ncrf, y, xs, fwd, cov, tstart, tstop, **ncrf_args)
+        return partial(boosting, y, xs, tstart, tstop, 'inplace', **boosting_args)
+
+    def _trf_job_ncrf_estimator(
+            self,
+            x: Model,
+            tstart: float,
+            tstop: float,
+            partitions: int,
+            samplingrate: int,
+            filter_x: FilterXArg,
+            data: DataArg,
+            estimator: Estimator,
+    ) -> Callable:
+        "Return NCRF fit job for estimator-driven entry points."
+        ds = self.load_epochs(samplingrate=samplingrate, data=data)
+        y = ds[data.y_name]
+        is_variable_time = isinstance(y, Datalist)
+
+        xs = []
+        for term in sorted(x.term_names):
+            code = Code.coerce(term)
+            self.add_predictor(ds, code, filter_x, data.y_name)
+            xs.append(ds[code.key])
+
+        if partitions is None:
+            if is_variable_time:
+                partitions = 1
+            elif (y.time.nsamples * y.time.tstep) / tstop < 30:
+                # Keep chunk size large enough for stable NCRF fits.
+                partitions = -1
+            else:
+                partitions = 1
+
+        if partitions < 0:
+            partitions = None if partitions == -1 else -partitions
+            y = concatenate(y)
+            xs = [concatenate(x_) for x_ in xs]
+
+        if len(xs) == 1:
+            xs = xs[0]
+        else:
+            names = [x_.name for x_ in xs]
+            if len(set(names)) < len(names):
+                raise ValueError(f"Multiple predictors with same name: {', '.join(names)}")
+            if is_variable_time:
+                xs = list(zip(*xs))
+
+        y0 = y[0] if is_variable_time else y
+        fwd = self.load_fwd(ndvar=True)
+        cov = self.load_cov()
+        if set(y0.sensor.names).difference(cov.ch_names):
+            if is_variable_time:
+                y = [yi.sub(sensor=cov.ch_names) for yi in y]
+            else:
+                y = y.sub(sensor=cov.ch_names)
+
+        from ncrf import fit_ncrf
+
+        ncrf_args = {'mu': 'auto', **estimator.parameters_for_partial()}
+        ncrf_args.setdefault('normalize', True)
+        ncrf_args.setdefault('in_place', True)
+        return partial(fit_ncrf, y, xs, fwd, cov, tstart, tstop, **ncrf_args)
 
     def load_trfs(
             self,
