@@ -1,4 +1,5 @@
 from pathlib import Path
+from eelbrain import load, combine
 from eelbrain.pipeline import RawFilter, PrimaryEpoch, LabelVar
 
 from trftools.pipeline import TRFExperiment, FilePredictor
@@ -7,6 +8,12 @@ from trftools.pipeline.estimator import BoostingEstimator, NCRFEstimator
 
 def _log(msg: str):
     print(f"[demo] {msg}")
+
+
+DIR = Path(__file__).parent
+STIMULI_LENGTHS = load.tsv(DIR / "appleseed_stimuli.txt", types="fv")
+STIMULI_PILOTS = STIMULI_LENGTHS.sub("stimulus != '11'").repeat(2)
+STIMULI_REAL = STIMULI_LENGTHS.sub("stimulus != '11b'").repeat(2)
 
 
 def _ensure_demo_predictor(e):
@@ -42,7 +49,7 @@ class AppleSeed(TRFExperiment):
 
     # At least one epoch required for load_trf. Task name must match BIDS (e.g. task-Appleseed in filenames).
     epochs = {
-        "Appleseed": PrimaryEpoch("Appleseed", None, samplingrate=100),
+        "Appleseed": PrimaryEpoch("Appleseed", "event == 'onset'", tmin=0, tmax="length", samplingrate=100),
         # Minimal covariance epoch for source-space/NCRF demos.
         "cov": PrimaryEpoch("Appleseed", None, tmin=-0.100, tmax=0.0, samplingrate=100),
     }
@@ -61,6 +68,7 @@ class AppleSeed(TRFExperiment):
     # events from the raw stimulus channel here, so use trigger codes rather
     # than relying on columns from the BIDS events.tsv.
     variables = {
+        "event": LabelVar("trigger", {162: "onset", 167: "offset"}),
         "stimulus": LabelVar("trigger", {(162, 167): "Appleseed"}),
     }
     tests = {}
@@ -70,9 +78,24 @@ class AppleSeed(TRFExperiment):
         # partitions required when n_cases not in 3..10 (e.g. 22 trials)
         "boosting": BoostingEstimator(basis=0.050, partitions=5),
         "boosting-l2": BoostingEstimator(error="l2", partitions=5),
-        "ncrf": NCRFEstimator(mu=0.1, n_iter=100),
+        "ncrf": NCRFEstimator(mu=0.001, n_iter=100),
         "ncrf-fast": NCRFEstimator(mu=0.01, n_iter=10),
     }
+
+    def fix_events(self, ds):
+        if ds.info.get("subject") == "R2676":
+            return combine([ds[:10], ds[11:]])
+        return ds
+
+    def label_events(self, ds):
+        if ds.info.get("subject") in ("R2650", "R2652"):
+            lengths = STIMULI_PILOTS["length"]
+        else:
+            lengths = STIMULI_REAL["length"]
+        if len(lengths) != ds.n_cases:
+            raise RuntimeError(f"Expected {len(lengths)} event lengths for {ds.info.get('subject')}, got {ds.n_cases} events")
+        ds["length"] = lengths
+        return ds
 
 # Initialize the demo experiment
 def _init_demo_experiment() -> AppleSeed:
@@ -91,6 +114,8 @@ def _run_demo(estimator: str, **load_trf_kwargs):
     _log(f"Initialized experiment with DATA_ROOT={DATA_ROOT}")
     _log(f"Subject={e.get('subject')}, Epoch={e.get('epoch')}, Estimator={estimator!r}, Options={load_trf_kwargs!r}")
     _ensure_demo_predictor(e)
+    if load_trf_kwargs.get("data") == "meg":
+        _log("Using sensor-space MEG data.")
     _log(f"Running TRF with estimator={estimator!r} (make=True)...")
     trf = e.load_trf(
         "acoustic_envelop",
@@ -105,8 +130,8 @@ def _run_demo(estimator: str, **load_trf_kwargs):
 
 
 def run_boosting_demo():
-    """Recommended boosting demo using the estimator registry."""
-    return _run_demo("boosting")
+    """Recommended sensor-space boosting demo using the estimator registry."""
+    return _run_demo("boosting", data="meg")
 
 
 def run_ncrf_demo():
@@ -116,3 +141,4 @@ def run_ncrf_demo():
 
 if __name__ == "__main__":
     run_ncrf_demo()
+    # run_boosting_demo()

@@ -1280,6 +1280,16 @@ class TRFExperiment(Pipeline):
             ncrf_args.setdefault('normalize', True)
             ncrf_args.setdefault('in_place', True)
             return partial(fit_ncrf, y, xs, fwd, cov, tstart, tstop, **ncrf_args)
+        boosting_args = {
+            'delta': delta,
+            'mindelta': mindelta,
+            'error': error,
+            'basis': basis,
+            'partitions': partitions,
+            'test': cv,
+            'selective_stopping': selective_stopping,
+            'partition_results': partition_results,
+        }
         return partial(boosting, y, xs, tstart, tstop, 'inplace', **boosting_args)
 
     def _trf_job_ncrf_estimator(
