@@ -16,13 +16,23 @@ STIMULI_PILOTS = STIMULI_LENGTHS.sub("stimulus != '11'").repeat(2)
 STIMULI_REAL = STIMULI_LENGTHS.sub("stimulus != '11b'").repeat(2)
 
 
+def _stimuli_for_subject(subject: str):
+    return STIMULI_PILOTS if subject in ("R2650", "R2652") else STIMULI_REAL
+
+
 def _ensure_demo_predictor(e):
-    """Check that the real demo predictor exists."""
+    """Check that per-stimulus demo predictors exist."""
     pred_dir = Path(e.get("predictor-dir"))
-    target = pred_dir / "Appleseed~acoustic_envelop.pickle"
-    if not target.exists():
-        raise FileNotFoundError(f"Required predictor file not found: {target}")
-    _log(f"Using predictor {target.name}.")
+    stimuli = _stimuli_for_subject(e.get("subject"))
+    missing = []
+    for stimulus in stimuli["stimulus"].cells:
+        target = pred_dir / f"{stimulus}~acoustic_envelop.pickle"
+        if not target.exists():
+            missing.append(target)
+    if missing:
+        missing_str = "\n".join(f"  - {path}" for path in missing)
+        raise FileNotFoundError(f"Required predictor files not found:\n{missing_str}")
+    _log(f"Using {len(stimuli['stimulus'].cells)} per-stimulus acoustic_envelop predictors from {pred_dir}.")
 
 
 # Path for BIDS (Brain Imaging Data Structure) data
@@ -55,7 +65,7 @@ class AppleSeed(TRFExperiment):
     }
     defaults = {"epoch": "Appleseed"}
 
-    # Predictor must exist as derivatives/predictors/{stimulus}~acoustic_envelop.pickle
+    # Predictor files must exist as derivatives/predictors/{stimulus}~acoustic_envelop.pickle
     predictors = {
         "acoustic_envelop": FilePredictor(),
     }
@@ -64,12 +74,11 @@ class AppleSeed(TRFExperiment):
         "acoustic_envelop": "acoustic_envelop",
     }
 
-    # Pipeline needs a "stimulus" column to load predictors. Eelbrain derives
-    # events from the raw stimulus channel here, so use trigger codes rather
-    # than relying on columns from the BIDS events.tsv.
+    # Eelbrain derives events from the raw stimulus channel here. The final
+    # segment-wise stimulus labels are injected in label_events() so FilePredictor
+    # loads one predictor file per segment instead of slicing a long concatenation.
     variables = {
         "event": LabelVar("trigger", {162: "onset", 167: "offset"}),
-        "stimulus": LabelVar("trigger", {(162, 167): "Appleseed"}),
     }
     tests = {}
 
@@ -88,16 +97,30 @@ class AppleSeed(TRFExperiment):
         return ds
 
     def label_events(self, ds):
-        if ds.info.get("subject") in ("R2650", "R2652"):
-            lengths = STIMULI_PILOTS["length"]
-        else:
-            lengths = STIMULI_REAL["length"]
-        if len(lengths) != ds.n_cases:
-            raise RuntimeError(f"Expected {len(lengths)} event lengths for {ds.info.get('subject')}, got {ds.n_cases} events")
-        ds["length"] = lengths
-        return ds
+        subject = ds.info.get("subject")
+        stimuli = _stimuli_for_subject(subject)
 
-# Initialize the demo experiment
+        if stimuli.n_cases != ds.n_cases:
+            raise RuntimeError(
+                f"Expected {stimuli.n_cases} stimulus rows for {subject}, "
+                f"got {ds.n_cases} events"
+            )
+
+        _log(f"label_events() called for subject={subject}")
+        _log(f"Event count={ds.n_cases}")
+        _log(f"Stimulus count={stimuli.n_cases}")
+        _log(f"Assigned stimulus sequence={list(stimuli['stimulus'])}")
+
+        ds.update(stimuli)
+
+        _log("All event-stimulus mappings:")
+        for i in range(ds.n_cases):
+            stim = ds["stimulus"][i]
+            length = ds["length"][i]
+            _log(f"{i:02d}: stimulus={stim}, length={length}")
+
+        return ds
+    # Initialize the demo experiment
 def _init_demo_experiment() -> AppleSeed:
     e = AppleSeed(DATA_ROOT)
     e._register_model(e._coerce_model("acoustic_envelop"))
@@ -108,9 +131,19 @@ def _init_demo_experiment() -> AppleSeed:
     e.set(subject=subject)
     return e
 
+
+def _demo_subjects(e: AppleSeed, n_subjects: int = 3) -> list[str]:
+    subjects = [s for s in (e._field_values.get("subject") or ()) if s != "emptyroom"]
+    if len(subjects) < n_subjects:
+        raise RuntimeError(f"Need at least {n_subjects} non-emptyroom subjects under {DATA_ROOT}, found {len(subjects)}")
+    return subjects[:n_subjects]
+
+
 # Run the demo
-def _run_demo(estimator: str, **load_trf_kwargs):
+def _run_demo(estimator: str, subject: str = None, **load_trf_kwargs):
     e = _init_demo_experiment()
+    if subject is not None:
+        e.set(subject=subject)
     _log(f"Initialized experiment with DATA_ROOT={DATA_ROOT}")
     _log(f"Subject={e.get('subject')}, Epoch={e.get('epoch')}, Estimator={estimator!r}, Options={load_trf_kwargs!r}")
     _ensure_demo_predictor(e)
@@ -134,11 +167,20 @@ def run_boosting_demo():
     return _run_demo("boosting", data="meg")
 
 
+def run_boosting_demo_multi():
+    """Run the sensor-space boosting demo for three subjects to compare subject-specific behavior."""
+    e = _init_demo_experiment()
+    subjects = _demo_subjects(e, 3)
+    _log(f"Running boosting demo for subjects: {', '.join(subjects)}")
+    return [_run_demo("boosting", subject=subject, data="meg") for subject in subjects]
+
+
 def run_ncrf_demo():
     """Recommended NCRF demo with estimator-managed sensor-space semantics."""
     return _run_demo("ncrf")
 
 
 if __name__ == "__main__":
-    run_ncrf_demo()
+    run_boosting_demo_multi()
     # run_boosting_demo()
+    # run_ncrf_demo()
